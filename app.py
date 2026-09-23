@@ -275,7 +275,7 @@ def main():
             m = folium.Map(
                 location=[23.75, 120.95],
                 zoom_start=7,
-                tiles="CartoDB positron"
+                tiles="OpenStreetMap"
             )
             
             for item in date_records:
