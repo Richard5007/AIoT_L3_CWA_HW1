@@ -70,11 +70,11 @@ flowchart TD
 #### 🔹 第一階段：基礎與 API 資料擷取 (Steps 1 ~ 6)
 1. **課程介紹**：AI × 資料 × 天氣 × 實作目標與學習地圖介紹。
 2. **台灣的天氣與生活**：探索天氣對生活的影響、資料驅動決策與智慧應用案例。
-3. **中央氣象署 CWA**：註冊 CWA Open Data 平台，取得 API Key 並選擇氣象資料集。
-4. **API 資料取得**：使用 `requests` 套件發送 HTTP 請求取得 JSON 格式資料。
+3. **中央氣象署 CWA**：註冊 CWA Open Data 平台，取得 API Key 並選擇資料集 `O-A0003-001` (自動氣象站氣象觀測資料 - 即時現在天氣)。
+4. **API 資料取得**：使用 `requests` 套件發送 HTTP 請求取得即時測站 JSON 格式資料。
    ```python
    import requests
-   url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
+   url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001"
    headers = {"Authorization": "YOUR_CWA_API_KEY"}
    resp = requests.get(url, headers=headers)
    data = resp.json()

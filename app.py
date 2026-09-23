@@ -1,20 +1,17 @@
 """
-app.py - Taiwan Weather Forecast 互動式天氣預報 Web 應用 (Modern UI Edition)
-符合專案工作流程 Steps 11 ~ 19 之全套介面設計
-使用 Streamlit + Plotly + Folium + SQLite
+app.py - Taiwan Weather Live 即時氣象觀測儀表板 (CWA O-A0003-001 專用版)
+全台 330+ 氣象觀測站實時連線 · 即時氣溫 · 今日高低溫 · 相對濕度 · 互動地圖
 """
 
 import os
 import sys
 from datetime import datetime
 
-# 設置標準輸出編碼
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import streamlit as st
 
-# 檢查可選依賴項
 try:
     import pandas as pd
 except ImportError:
@@ -22,8 +19,10 @@ except ImportError:
 
 try:
     import plotly.graph_objects as go
+    import plotly.express as px
 except ImportError:
     go = None
+    px = None
 
 try:
     import folium
@@ -35,22 +34,21 @@ except ImportError:
 from database import (
     init_db,
     save_forecasts,
-    get_all_regions,
-    get_all_dates,
-    get_forecasts_by_region,
-    get_forecasts_by_date,
+    get_all_counties,
+    get_stations_by_county,
+    get_all_latest_observations,
     get_total_records_count
 )
 from cwa_service import (
     fetch_weather_data,
     parse_weather_json,
     load_cwa_api_key,
-    TAIWAN_LOCATION_COORDS
+    DATASET_ID
 )
 
 # 頁面配置
 st.set_page_config(
-    page_title="Taiwan Weather Forecast - 智慧天氣預報儀表板",
+    page_title="Taiwan Weather Live - 即時氣象觀測儀表板",
     page_icon="🌤️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -67,28 +65,26 @@ st.markdown("""
     
     /* 頂部 Hero Banner */
     .hero-banner {
-        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #06b6d4 100%);
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0284c7 100%);
         border-radius: 16px;
-        padding: 28px 32px;
+        padding: 26px 30px;
         color: white;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.25);
+        margin-bottom: 22px;
+        box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.25);
         position: relative;
-        overflow: hidden;
     }
     
     .hero-title {
         font-size: 2.1rem;
         font-weight: 800;
-        letter-spacing: -0.02em;
-        margin: 0 0 8px 0;
+        margin: 0 0 6px 0;
         display: flex;
         align-items: center;
         gap: 12px;
     }
     
     .hero-desc {
-        font-size: 1.05rem;
+        font-size: 1.02rem;
         opacity: 0.92;
         margin: 0;
         font-weight: 400;
@@ -98,14 +94,14 @@ st.markdown("""
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        background: rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.16);
         backdrop-filter: blur(10px);
-        padding: 6px 14px;
+        padding: 5px 12px;
         border-radius: 9999px;
         font-size: 0.82rem;
         font-weight: 600;
-        margin-top: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.25);
+        margin-top: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
     
     .status-dot {
@@ -120,9 +116,9 @@ st.markdown("""
     .metric-card-box {
         background: white;
         border-radius: 14px;
-        padding: 20px 22px;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        padding: 18px 20px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     
@@ -132,56 +128,38 @@ st.markdown("""
     }
 
     .metric-label {
-        font-size: 0.88rem;
+        font-size: 0.85rem;
         font-weight: 600;
-        color: #6B7280;
-        margin-bottom: 6px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
+        color: #64748B;
+        margin-bottom: 4px;
     }
     
     .metric-value {
-        font-size: 1.95rem;
+        font-size: 1.9rem;
         font-weight: 800;
-        letter-spacing: -0.02em;
         line-height: 1.2;
     }
     
     .metric-footer {
-        margin-top: 8px;
+        margin-top: 6px;
         font-size: 0.8rem;
-        color: #9CA3AF;
-        display: flex;
-        align-items: center;
-        gap: 4px;
+        color: #94A3B8;
     }
 
     /* 生活建議小卡 */
     .tip-card {
         background: #F8FAFC;
-        border-left: 4px solid #3B82F6;
+        border-left: 4px solid #0284C7;
         border-radius: 0 12px 12px 0;
-        padding: 16px 20px;
+        padding: 14px 18px;
         margin: 16px 0;
-    }
-
-    /* 標籤頁美化 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        padding: 10px 20px;
-        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 def get_temp_color(avg_temp: float) -> str:
-    """依據平均溫度返回圖層色彩 (Step 17 溫度色階)"""
+    """依據即時氣溫返回溫度標籤色階"""
     if avg_temp < 20:
         return "#3B82F6"  # 藍色 (<20°C 涼爽)
     elif avg_temp <= 25:
@@ -205,46 +183,43 @@ def get_greeting() -> str:
         return "晚安"
 
 
-def get_clothing_advice(max_t: float, min_t: float) -> tuple:
-    """智慧穿搭與天氣建議"""
+def get_clothing_advice(air_temp: float, max_t: float, min_t: float) -> tuple:
+    """智慧穿搭與天氣生活建議"""
     diff = max_t - min_t
-    if max_t >= 30:
-        cloth = "天氣炎熱，建議穿著透氣排汗短袖衣服，注意防曬並多補充水分。"
+    if air_temp >= 30:
+        cloth = "目前氣溫高達 30°C 以上，戶外高溫炎熱，建議穿著排汗透氣短袖，注意防曬並定時補充水分。"
         icon = "☀️"
-    elif max_t >= 25:
-        cloth = "氣候溫和舒適，適合穿著休閒短袖或薄長袖。"
+    elif air_temp >= 25:
+        cloth = "氣溫在 25~30°C 之間，體感暖和微熱，穿著一般夏季休閒短袖即可。"
         icon = "🌤️"
-    elif max_t >= 20:
-        cloth = "體感略顯涼爽，建議著長袖衣物並隨身備好外套。"
+    elif air_temp >= 20:
+        cloth = "目前氣溫約 20~25°C，微風舒適宜人，適合穿著舒適長袖或搭配薄襯衫。"
         icon = "🧥"
     else:
-        cloth = "天氣偏冷，請注意保暖，建議搭配厚外套或毛衣。"
+        cloth = "氣溫低於 20°C，體感偏冷涼，建議著保暖外套或毛衣禦寒。"
         icon = "🧣"
         
-    notice = "早晚溫差顯著 (超過 7°C)，外出建議洋蔥式穿搭。" if diff >= 7 else "早晚氣溫穩定，舒適宜人。"
+    notice = "今日日溫差偏大 (超過 7°C)，外出請注意早晚溫差變化。" if diff >= 7 else "今日溫差平穩，氣溫穩定。"
     return cloth, notice, icon
 
 
 def main():
-    # 初始化資料庫
     init_db()
-    
-    # 側邊欄 (Sidebar)
-    st.sidebar.markdown("### 🌤️ **氣象設定與操作**")
-    st.sidebar.caption("交通部中央氣象署 Open Data API 串接")
-    
-    # 背景自動讀取 API Key (無痕安全機制)
     cwa_key = load_cwa_api_key()
     
+    # 側邊欄控制面板
+    st.sidebar.markdown("### 🌤️ **氣象控制台**")
+    st.sidebar.caption(f"中央氣象署 Open Data ({DATASET_ID})")
+    
     # 手動即時同步按鈕
-    if st.sidebar.button("🔄 同步氣象署最新預報", use_container_width=True, type="primary"):
-        with st.spinner("正在自中央氣象署拉取最新預報數據..."):
+    if st.sidebar.button("🔄 同步氣象署最新觀測資料", use_container_width=True, type="primary"):
+        with st.spinner("正在向中央氣象署請求全台測站即時觀測數據..."):
             try:
                 raw_json = fetch_weather_data(cwa_key)
                 records = parse_weather_json(raw_json)
                 if records:
                     saved = save_forecasts(records)
-                    st.sidebar.success(f"✅ 同步成功！已更新 {saved} 筆氣象紀錄。")
+                    st.sidebar.success(f"✅ 同步成功！已更新 {saved} 處測站資料。")
                 else:
                     st.sidebar.warning("⚠️ 未取得任何紀錄，請確認網路連線。")
             except Exception as e:
@@ -252,243 +227,218 @@ def main():
                 
     st.sidebar.markdown("---")
     
-    # 檢查資料庫是否有預存資料
-    regions = get_all_regions()
-    if not regions:
-        with st.spinner("首次啟動：正在初始化全台氣溫資料庫..."):
+    # 資料庫初次確認
+    counties = get_all_counties()
+    if not counties:
+        with st.spinner("首次啟動：正在初始化全台氣象測站資料庫..."):
             raw_json = fetch_weather_data(cwa_key)
             records = parse_weather_json(raw_json)
             save_forecasts(records)
-            regions = get_all_regions()
+            counties = get_all_counties()
             
-    dates = get_all_dates()
-    
-    # 預報地區選擇
-    default_idx = 0
-    for fav in ["臺北市", "台中市", "高雄市", "北部地區"]:
-        if fav in regions:
-            default_idx = regions.index(fav)
+    # 縣市篩選選單
+    default_county_idx = 0
+    for fav in ["臺北市", "台中市", "高雄市", "新北市"]:
+        if fav in counties:
+            default_county_idx = counties.index(fav)
             break
             
-    selected_region = st.sidebar.selectbox(
-        "📍 選擇觀測縣市 / 地區",
-        options=regions,
-        index=default_idx
+    selected_county = st.sidebar.selectbox(
+        "📍 選擇觀測縣市 (County)",
+        options=counties,
+        index=default_county_idx
     )
     
-    # 預報時段選擇
-    selected_date = st.sidebar.selectbox(
-        "📅 選擇預報時段",
-        options=dates,
-        index=0 if dates else None
+    # 取得該縣市內之測站清單
+    county_stations = get_stations_by_county(selected_county)
+    station_names = [f"{s['townName']} - {s['stationName']}" if s.get('townName') else s['stationName'] for s in county_stations]
+    
+    selected_station_idx = 0
+    selected_station_label = st.sidebar.selectbox(
+        "🏢 選擇具體測站 (Station)",
+        options=station_names,
+        index=0 if station_names else None
     )
     
     st.sidebar.markdown("---")
     
-    # 側邊欄資料庫狀態卡片
+    # 資料庫摘要卡片
     total_count = get_total_records_count()
     st.sidebar.markdown(f"""
-    <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; font-size: 0.86rem; color: #475569;">
-        <div style="font-weight: 700; color: #1E293B; margin-bottom: 6px;">📊 系統資料庫狀態</div>
-        <div>• 累積氣溫紀錄：<b>{total_count}</b> 筆</div>
-        <div>• 涵蓋觀測縣市：<b>{len(regions)}</b> 處</div>
-        <div>• 資料庫防護：<b>Idempotency 已啟動</b></div>
+    <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 12px; font-size: 0.85rem; color: #475569;">
+        <div style="font-weight: 700; color: #1E293B; margin-bottom: 4px;">📊 資料庫連線狀態</div>
+        <div>• 即時觀測測站：<b>{total_count}</b> 站</div>
+        <div>• 涵蓋縣市範圍：<b>{len(counties)}</b> 縣市</div>
+        <div>• 資料來源代碼：<b>{DATASET_ID}</b></div>
     </div>
     """, unsafe_allow_html=True)
     
+    # 取得當前所選測站之觀測數據
+    current_station = None
+    if county_stations and selected_station_label:
+        for s in county_stations:
+            label = f"{s['townName']} - {s['stationName']}" if s.get('townName') else s['stationName']
+            if label == selected_station_label:
+                current_station = s
+                break
+        if not current_station:
+            current_station = county_stations[0]
+            
     # 主畫面 Hero Banner
     greeting = get_greeting()
-    now_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    obs_time_display = current_station['obsTime'].replace("T", " ")[:19] if current_station else datetime.now().strftime("%Y-%m-%d %H:%M")
     
     st.markdown(f"""
     <div class="hero-banner">
         <div class="hero-title">
-            <span>🌤️</span> Taiwan Weather Forecast
+            <span>🌤️</span> Taiwan Weather Live
         </div>
-        <p class="hero-desc">{greeting}！即時台灣各地天氣預報、多日氣溫走勢與地理資訊視覺化看板。</p>
+        <p class="hero-desc">{greeting}！全台 330+ 自動氣象站現在天氣觀測報告 · 實時溫濕度與極值記錄。</p>
         <div class="status-badge">
             <span class="status-dot"></span>
-            <span>CWA Open Data 連線中 · 系統時間 {now_time_str}</span>
+            <span>CWA {DATASET_ID} 即時觀測 · 最新觀測時間：{obs_time_display}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # 載入所選地區預報資料
-    region_data = get_forecasts_by_region(selected_region)
-    if pd is not None and isinstance(region_data, pd.DataFrame):
-        df_region = region_data
-    elif pd is not None and isinstance(region_data, list):
-        df_region = pd.DataFrame(region_data)
-    else:
-        df_region = None
+    # 核心氣象 KPI 指標卡
+    if current_station:
+        air_t = float(current_station['airTemp'])
+        max_t = float(current_station['maxT'])
+        min_t = float(current_station['minT'])
+        hum = current_station.get('relativeHumidity')
+        hum_str = f"{hum} %" if hum is not None else "檢測中"
+        weather_desc = current_station.get('weather', '良好')
+        precip = current_station.get('precipitation', 0.0)
         
-    # KPI 核心氣溫指標卡
-    if df_region is not None and not df_region.empty:
-        match_row = df_region[df_region["dataDate"] == selected_date]
-        current_item = match_row.iloc[0] if not match_row.empty else df_region.iloc[0]
-        
-        min_val = float(current_item['minT'])
-        max_val = float(current_item['maxT'])
-        diff_val = round(max_val - min_val, 1)
-        avg_val = round((max_val + min_val) / 2.0, 1)
-        
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             st.markdown(f"""
             <div class="metric-card-box">
-                <div class="metric-label">📍 當前觀測地區</div>
-                <div class="metric-value" style="color: #1E3A8A;">{selected_region}</div>
-                <div class="metric-footer">時段: {current_item['dataDate']}</div>
+                <div class="metric-label">📍 當前觀測站</div>
+                <div class="metric-value" style="color: #0F172A; font-size: 1.45rem;">{current_station['stationName']}</div>
+                <div class="metric-footer">{current_station['countyName']} {current_station.get('townName','')}</div>
             </div>
             """, unsafe_allow_html=True)
             
         with col2:
             st.markdown(f"""
             <div class="metric-card-box">
-                <div class="metric-label">🔥 最高氣溫 (MaxT)</div>
-                <div class="metric-value" style="color: #DC2626;">{max_val} <span style="font-size: 1.1rem; font-weight: 500;">°C</span></div>
-                <div class="metric-footer">預估日間最高體感</div>
+                <div class="metric-label">🌡️ 目前即時氣溫</div>
+                <div class="metric-value" style="color: #0284C7;">{air_t} <span style="font-size: 1.1rem; font-weight: 500;">°C</span></div>
+                <div class="metric-footer">天氣現況: {weather_desc}</div>
             </div>
             """, unsafe_allow_html=True)
             
         with col3:
             st.markdown(f"""
             <div class="metric-card-box">
-                <div class="metric-label">❄️ 最低氣溫 (MinT)</div>
-                <div class="metric-value" style="color: #2563EB;">{min_val} <span style="font-size: 1.1rem; font-weight: 500;">°C</span></div>
-                <div class="metric-footer">預估夜間清晨最低溫</div>
+                <div class="metric-label">🔺 今日最高溫 (Max)</div>
+                <div class="metric-value" style="color: #DC2626;">{max_t} <span style="font-size: 1.1rem; font-weight: 500;">°C</span></div>
+                <div class="metric-footer">當日最高極值</div>
             </div>
             """, unsafe_allow_html=True)
             
         with col4:
             st.markdown(f"""
             <div class="metric-card-box">
-                <div class="metric-label">⚖️ 預報溫差 (Range)</div>
-                <div class="metric-value" style="color: #7C3AED;">{diff_val} <span style="font-size: 1.1rem; font-weight: 500;">°C</span></div>
-                <div class="metric-footer">平均溫: {avg_val}°C</div>
+                <div class="metric-label">🔻 今日最低溫 (Min)</div>
+                <div class="metric-value" style="color: #3B82F6;">{min_t} <span style="font-size: 1.1rem; font-weight: 500;">°C</span></div>
+                <div class="metric-footer">當日最低極值</div>
             </div>
             """, unsafe_allow_html=True)
             
-        # 智慧生活與穿搭推薦小卡 (Step 22 延伸應用展示)
-        cloth, notice, tip_icon = get_clothing_advice(max_val, min_val)
+        with col5:
+            st.markdown(f"""
+            <div class="metric-card-box">
+                <div class="metric-label">💧 相對濕度 / 雨量</div>
+                <div class="metric-value" style="color: #10B981; font-size: 1.6rem;">{hum_str}</div>
+                <div class="metric-footer">累積雨量: {precip} mm</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        # 生活穿搭建議
+        cloth, notice, tip_icon = get_clothing_advice(air_t, max_t, min_t)
         st.markdown(f"""
         <div class="tip-card">
-            <div style="font-weight: 700; font-size: 0.96rem; color: #1E3A8A; margin-bottom: 4px;">
-                {tip_icon} 智慧穿搭與生活提醒（AIoT 助理）
+            <div style="font-weight: 700; font-size: 0.95rem; color: #0369A1; margin-bottom: 4px;">
+                {tip_icon} 即時天氣生活與穿搭提醒
             </div>
             <div style="font-size: 0.9rem; color: #334155;">
                 {cloth} <b>{notice}</b>
             </div>
         </div>
         """, unsafe_allow_html=True)
-
-    # 主分頁結構
+        
+    st.markdown("---")
+    
+    # 分頁配置
     tab1, tab2, tab3 = st.tabs([
-        "📈 氣溫趨勢折線圖 (Step 14)",
-        "🗺️ 全台氣溫地圖視覺化 (Step 17 & 18)",
-        "📋 預報數據清單與導出 (Step 15)"
+        f"📊 {selected_county} 各測站即時氣溫比較",
+        "🗺️ 全台 330+ 測站即時地圖視覺化",
+        "📋 氣象測站即時觀測數據表"
     ])
     
-    # Tab 1: 氣溫走勢圖
+    # Tab 1: 縣市內測站即時比較
     with tab1:
-        st.markdown(f"#### 📊 **{selected_region}** 氣溫變化預報圖")
-        if df_region is not None and not df_region.empty:
-            if go is not None:
-                fig = go.Figure()
+        st.markdown(f"#### 📊 **{selected_county}** 轄區內各氣象站即時氣溫排行")
+        if county_stations:
+            df_county = pd.DataFrame(county_stations) if pd is not None else None
+            if df_county is not None and not df_county.empty:
+                # 排序
+                df_sorted = df_county.sort_values(by="airTemp", ascending=True)
                 
-                # 填充溫差區域
-                fig.add_trace(go.Scatter(
-                    x=df_region["dataDate"],
-                    y=df_region["maxT"],
-                    mode="lines",
-                    line=dict(width=0),
-                    showlegend=False,
-                    hoverinfo="skip"
-                ))
-                fig.add_trace(go.Scatter(
-                    x=df_region["dataDate"],
-                    y=df_region["minT"],
-                    mode="lines",
-                    line=dict(width=0),
-                    fill="tonexty",
-                    fillcolor="rgba(59, 130, 246, 0.08)",
-                    name="氣溫波動範圍",
-                    hoverinfo="skip"
-                ))
-                
-                # 最高溫線 (紅色漸層)
-                fig.add_trace(go.Scatter(
-                    x=df_region["dataDate"],
-                    y=df_region["maxT"],
-                    mode="lines+markers+text",
-                    name="最高溫 (MaxT)",
-                    text=[f"{v}°" for v in df_region["maxT"]],
-                    textposition="top center",
-                    line=dict(color="#EF4444", width=3, shape="spline"),
-                    marker=dict(size=9, color="#EF4444", symbol="circle", line=dict(color="white", width=2))
-                ))
-                
-                # 最低溫線 (藍色漸層)
-                fig.add_trace(go.Scatter(
-                    x=df_region["dataDate"],
-                    y=df_region["minT"],
-                    mode="lines+markers+text",
-                    name="最低溫 (MinT)",
-                    text=[f"{v}°" for v in df_region["minT"]],
-                    textposition="bottom center",
-                    line=dict(color="#3B82F6", width=3, shape="spline"),
-                    marker=dict(size=9, color="#3B82F6", symbol="circle", line=dict(color="white", width=2))
-                ))
-                
-                fig.update_layout(
-                    margin=dict(l=20, r=20, t=35, b=20),
-                    height=420,
-                    xaxis=dict(
-                        title="預報時段 / 日期",
-                        showgrid=True,
-                        gridcolor="#F3F4F6",
-                        linecolor="#E5E7EB"
-                    ),
-                    yaxis=dict(
-                        title="溫度 (°C)",
-                        showgrid=True,
-                        gridcolor="#F3F4F6",
-                        linecolor="#E5E7EB"
-                    ),
-                    legend=dict(
+                if go is not None:
+                    fig = go.Figure()
+                    
+                    # 橫向長條圖：即時氣溫
+                    fig.add_trace(go.Bar(
+                        y=df_sorted["townName"] + " - " + df_sorted["stationName"],
+                        x=df_sorted["airTemp"],
                         orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
-                    ),
-                    hovermode="x unified",
-                    plot_bgcolor="white",
-                    paper_bgcolor="white"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                        name="即時氣溫",
+                        text=[f"{t}°C" for t in df_sorted["airTemp"]],
+                        textposition="outside",
+                        marker=dict(
+                            color=df_sorted["airTemp"],
+                            colorscale="Viridis",
+                            colorbar=dict(title="氣溫 (°C)")
+                        )
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"{selected_county} 各測站即時溫度對比",
+                        xaxis_title="氣溫 (°C)",
+                        yaxis_title="測站名稱",
+                        margin=dict(l=20, r=40, t=40, b=20),
+                        height=max(380, len(df_sorted) * 36),
+                        plot_bgcolor="white",
+                        paper_bgcolor="white"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.dataframe(df_sorted[["stationName", "townName", "airTemp", "maxT", "minT", "relativeHumidity"]], use_container_width=True)
             else:
-                chart_df = df_region.set_index("dataDate")[["minT", "maxT"]]
-                st.line_chart(chart_df)
+                st.info("該縣市暫無可用測站數據。")
         else:
-            st.info("尚無該地區之氣溫數據。")
-
-    # Tab 2: 台灣地圖視覺化
+            st.info("暫無測站資料。")
+            
+    # Tab 2: 全台即時地圖
     with tab2:
-        st.markdown(f"#### 🗺️ 台灣全區氣溫分佈圖 ({selected_date or '最新時段'})")
+        st.markdown("#### 🗺️ 全台灣氣象觀測站實時氣溫分佈圖")
         st.markdown("""
         <div style="display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; font-size: 0.85rem; font-weight: 600;">
-            <span style="color: #3B82F6;">🟦 &lt; 20°C (寒冷涼爽)</span>
-            <span style="color: #10B981;">🟩 20 ~ 25°C (舒適適中)</span>
-            <span style="color: #F59E0B;">🟧 25 ~ 30°C (溫暖微熱)</span>
-            <span style="color: #EF4444;">🟥 &gt; 30°C (炎熱高溫)</span>
+            <span style="color: #3B82F6;">🟦 &lt; 20°C (涼爽)</span>
+            <span style="color: #10B981;">🟩 20 ~ 25°C (舒適)</span>
+            <span style="color: #F59E0B;">🟧 25 ~ 30°C (溫暖)</span>
+            <span style="color: #EF4444;">🟥 &gt; 30°C (炎熱)</span>
         </div>
         """, unsafe_allow_html=True)
         
-        date_records = get_forecasts_by_date(selected_date) if selected_date else []
+        all_stations = get_all_latest_observations()
         
-        if folium is not None and st_folium is not None:
+        if folium is not None and st_folium is not None and all_stations:
             # 建立地圖實例
             m = folium.Map(
                 location=[23.75, 120.95],
@@ -496,78 +446,92 @@ def main():
                 tiles="OpenStreetMap"
             )
             
-            for item in date_records:
-                r_name = item["regionName"]
-                min_t = item["minT"]
-                max_t = item["maxT"]
-                avg_t = item.get("avgT", round((min_t + max_t) / 2.0, 1))
-                coords = TAIWAN_LOCATION_COORDS.get(r_name)
+            for s in all_stations:
+                lat = s.get("lat")
+                lon = s.get("lon")
+                air_t = s.get("airTemp")
                 
-                if coords:
-                    color = get_temp_color(avg_t)
-                    popup_html = f"""
-                    <div style="font-family: sans-serif; min-width: 140px; padding: 4px;">
-                        <h4 style="margin: 0 0 6px 0; color: #1E3A8A; font-size: 15px;">📍 {r_name}</h4>
-                        <hr style="margin: 4px 0; border: none; border-top: 1px solid #E2E8F0;" />
-                        <div style="font-size: 12px; color: #64748B; margin-bottom: 4px;">時段: {item['dataDate']}</div>
-                        <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                            <span>🔺 最高溫:</span><b style="color: #EF4444;">{max_t} °C</b>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                            <span>🔻 最低溫:</span><b style="color: #3B82F6;">{min_t} °C</b>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                            <span>⚖️ 平均溫:</span><b>{avg_t} °C</b>
-                        </div>
+                # 排除不合理座標
+                if not (lat and lon and 21.0 <= lat <= 26.5 and 118.0 <= lon <= 122.5):
+                    continue
+                    
+                color = get_temp_color(air_t)
+                popup_html = f"""
+                <div style="font-family: sans-serif; min-width: 140px; padding: 4px;">
+                    <h4 style="margin: 0 0 6px 0; color: #0284C7; font-size: 15px;">📍 {s['countyName']} - {s['stationName']}</h4>
+                    <hr style="margin: 4px 0; border: none; border-top: 1px solid #E2E8F0;" />
+                    <div style="font-size: 12px; color: #64748B; margin-bottom: 4px;">鄉鎮區: {s.get('townName','')}</div>
+                    <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                        <span>🌡️ 目前氣溫:</span><b style="color: {color};">{air_t} °C</b>
                     </div>
-                    """
-                    folium.CircleMarker(
-                        location=coords,
-                        radius=11,
-                        popup=folium.Popup(popup_html, max_width=260),
-                        tooltip=f"{r_name}: {min_t}°C ~ {max_t}°C (均溫 {avg_t}°C)",
-                        color=color,
-                        fill=True,
-                        fill_color=color,
-                        fill_opacity=0.85,
-                        weight=2
-                    ).add_to(m)
-            
-            st_folium(m, width="100%", height=500)
+                    <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                        <span>🔺 今日最高:</span><b style="color: #EF4444;">{s.get('maxT')} °C</b>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                        <span>🔻 今日最低:</span><b style="color: #3B82F6;">{s.get('minT')} °C</b>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                        <span>💧 相對濕度:</span><b>{s.get('relativeHumidity')}%</b>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                        <span>☁️ 天氣狀況:</span><b>{s.get('weather','良好')}</b>
+                    </div>
+                </div>
+                """
+                
+                is_selected = (s.get("countyName") == selected_county)
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=8 if is_selected else 5,
+                    popup=folium.Popup(popup_html, max_width=270),
+                    tooltip=f"{s['countyName']} {s['stationName']}: {air_t}°C ({s.get('weather','良好')})",
+                    color="#0F172A" if is_selected else color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=0.9 if is_selected else 0.7,
+                    weight=2 if is_selected else 1
+                ).add_to(m)
+                
+            st_folium(m, width="100%", height=520)
         else:
-            st.info("💡 提示：安裝 `folium` 與 `streamlit-folium` 可體驗高畫質台灣互動地圖。")
-            if date_records:
-                map_df = pd.DataFrame(date_records)
-                st.dataframe(map_df, use_container_width=True)
+            st.info("地圖模組載入中或未安裝...")
 
-    # Tab 3: 預報數據清單
+    # Tab 3: 詳細數據表
     with tab3:
-        st.markdown(f"#### 📋 **{selected_region}** 預報詳細數據清單")
-        if df_region is not None and not df_region.empty:
-            display_df = df_region.rename(columns={
-                "regionName": "觀測地區",
-                "dataDate": "預報時段",
-                "minT": "最低氣溫 (°C)",
-                "maxT": "最高氣溫 (°C)",
-                "avgT": "平均氣溫 (°C)"
-            })
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-            
-            csv_data = display_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                label="📥 下載本區預報數據 (CSV)",
-                data=csv_data,
-                file_name=f"{selected_region}_weather_forecast.csv",
-                mime="text/csv",
-                use_container_width=False
-            )
+        st.markdown(f"#### 📋 **{selected_county}** 各測站即時數據一覽")
+        if county_stations:
+            df_display = pd.DataFrame(county_stations) if pd is not None else None
+            if df_display is not None and not df_display.empty:
+                cols = {
+                    "stationId": "測站代碼",
+                    "stationName": "測站名稱",
+                    "townName": "鄉鎮區",
+                    "airTemp": "即時氣溫 (°C)",
+                    "maxT": "今日最高溫 (°C)",
+                    "minT": "今日最低溫 (°C)",
+                    "relativeHumidity": "相對濕度 (%)",
+                    "weather": "天氣狀況",
+                    "precipitation": "累積雨量 (mm)",
+                    "obsTime": "觀測時間"
+                }
+                valid_cols = [c for c in cols.keys() if c in df_display.columns]
+                show_df = df_display[valid_cols].rename(columns=cols)
+                st.dataframe(show_df, use_container_width=True, hide_index=True)
+                
+                csv_data = show_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    label="📥 下載此縣市觀測 CSV",
+                    data=csv_data,
+                    file_name=f"{selected_county}_stations_weather.csv",
+                    mime="text/csv"
+                )
         else:
-            st.info("暫無結構化數據。")
+            st.info("暫無數據。")
             
     st.markdown("---")
     st.markdown("""
-    <div style="text-align: center; color: #94A3B8; font-size: 0.82rem; padding: 12px 0;">
-        AIoT Lesson 3 Homework 1 · Central Weather Administration (CWA) Open Data · Developed with Streamlit
+    <div style="text-align: center; color: #94A3B8; font-size: 0.82rem; padding: 10px 0;">
+        交通部中央氣象署 (CWA) Open Data · 資料集代碼: O-A0003-001 · 實時更新
     </div>
     """, unsafe_allow_html=True)
 

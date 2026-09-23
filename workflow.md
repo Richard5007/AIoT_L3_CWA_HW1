@@ -64,7 +64,7 @@ flowchart TD
 - **步驟**：
   1. 前往 [中央氣象署開放資料平臺](https://opendata.cwa.gov.tw/) 註冊帳號。
   2. 登入後於會員中心取得授權碼（`API Key` / `Authorization Token`）。
-  3. 選擇預報資料集：`F-C0032-001`（一般天氣預報-今明相當天氣預報）。
+  3. 選擇資料集：`O-A0003-001`（自動氣象站氣象觀測資料 - 現在天氣觀測報告）。
 
 #### Step 4: API 資料取得 (API Data Retrieval)
 - **說明**：使用 Python `requests` 套件呼叫 CWA RESTful API，並設定 Authorization Header。
@@ -73,7 +73,7 @@ flowchart TD
   import requests
 
   CWA_API_KEY = "YOUR_CWA_API_KEY"
-  URL = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization={CWA_API_KEY}"
+  URL = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization={CWA_API_KEY}"
 
   response = requests.get(URL)
   if response.status_code == 200:
