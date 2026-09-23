@@ -1,31 +1,9 @@
-"""
-api/index.py - Vercel Serverless Application Entry Point
-支援 Vercel 部署、Edge CDN 快取、RESTful API 與現代化即時氣象儀表板。
-"""
-
-import os
-import sys
-import json
-from datetime import datetime
-from flask import Flask, jsonify, make_response, render_template_string
-
-# 確保當前路徑與上一層目錄在 sys.path 中
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-from cwa_service import fetch_weather_data, parse_weather_json, load_cwa_api_key, DATASET_ID
-
-app = Flask(__name__)
-
-# 內嵌現代化即時氣象儀表板 HTML (整合 Tailwind CSS, Leaflet.js, Chart.js)
-DASHBOARD_HTML = """<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Taiwan Weather Live - 全台氣象即時觀測儀表板 (Vercel Edition)</title>
+    <title>Taiwan Weather Live - 全台氣象即時觀測儀表板</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts -->
@@ -40,7 +18,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <style>
         body { font-family: 'Plus Jakarta Sans', 'Noto Sans TC', sans-serif; }
         .hero-gradient { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0284c7 100%); }
-        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
         #map { height: 500px; border-radius: 12px; }
     </style>
 </head>
@@ -103,31 +80,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         <!-- 核心氣溫指標卡 (5 欄式) -->
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <!-- 卡片 1 -->
             <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                 <div class="text-xs font-semibold text-slate-500">📍 當前觀測站點</div>
                 <div class="text-lg sm:text-xl font-bold text-slate-900 mt-2 truncate" id="kpi-station-name">--</div>
                 <div class="text-xs text-slate-400 mt-1 truncate" id="kpi-station-town">--</div>
             </div>
-            <!-- 卡片 2 -->
             <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                 <div class="text-xs font-semibold text-slate-500">🌡️ 目前即時氣溫</div>
                 <div class="text-2xl sm:text-3xl font-extrabold text-sky-600 mt-1" id="kpi-temp">--<span class="text-sm font-normal text-slate-500">°C</span></div>
                 <div class="text-xs text-slate-400 mt-1" id="kpi-weather">現況: --</div>
             </div>
-            <!-- 卡片 3 -->
             <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                 <div class="text-xs font-semibold text-slate-500">🔺 今日最高溫</div>
                 <div class="text-2xl sm:text-3xl font-extrabold text-rose-500 mt-1" id="kpi-max-temp">--<span class="text-sm font-normal text-slate-500">°C</span></div>
                 <div class="text-xs text-slate-400 mt-1">當日最高極值</div>
             </div>
-            <!-- 卡片 4 -->
             <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                 <div class="text-xs font-semibold text-slate-500">🔻 今日最低溫</div>
                 <div class="text-2xl sm:text-3xl font-extrabold text-blue-500 mt-1" id="kpi-min-temp">--<span class="text-sm font-normal text-slate-500">°C</span></div>
                 <div class="text-xs text-slate-400 mt-1">當日最低極值</div>
             </div>
-            <!-- 卡片 5 -->
             <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1">
                 <div class="text-xs font-semibold text-slate-500">💧 相對濕度 / 雨量</div>
                 <div class="text-2xl sm:text-3xl font-extrabold text-emerald-500 mt-1" id="kpi-humidity">--<span class="text-sm font-normal text-slate-500">%</span></div>
@@ -146,8 +118,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         <!-- 儀表板主要內容分區 (圖表 + 地圖) -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            <!-- 左側/上方：縣市轄區測站氣溫對比圖表 (5 欄) -->
             <div class="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
@@ -160,7 +130,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- 右側/下方：全台灣即時測站分佈地圖 (7 欄) -->
             <div class="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
@@ -175,7 +144,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </div>
                 <div id="map" class="shadow-inner border border-slate-100 flex-1"></div>
             </div>
-
         </div>
 
         <!-- 數據詳細清單與下載區塊 -->
@@ -314,7 +282,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             document.getElementById("kpi-humidity").innerHTML = `${s.relativeHumidity !== null ? s.relativeHumidity : '--'}<span class="text-sm font-normal text-slate-500">%</span>`;
             document.getElementById("kpi-rain").innerText = `累積雨量: ${s.precipitation || 0} mm`;
 
-            // 穿衣建議
             const t = s.airTemp;
             const diff = s.maxT - s.minT;
             let cloth = "", icon = "🌤️";
@@ -459,9 +426,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const countyStations = allStations.filter(s => s.countyName === currentCounty);
             if (countyStations.length === 0) return;
 
-            let csv = "\\uFEFF測站代碼,測站名稱,縣市,鄉鎮區,即時氣溫,今日最高溫,今日最低溫,相對濕度,天氣狀況,累積雨量,觀測時間\\n";
+            let csv = "\uFEFF測站代碼,測站名稱,縣市,鄉鎮區,即時氣溫,今日最高溫,今日最低溫,相對濕度,天氣狀況,累積雨量,觀測時間\n";
             countyStations.forEach(s => {
-                csv += `"${s.stationId}","${s.stationName}","${s.countyName}","${s.townName || ''}",${s.airTemp},${s.maxT},${s.minT},"${s.relativeHumidity || ''}","${s.weather || ''}",${s.precipitation || 0},"${s.obsTime}"\\n`;
+                csv += `"${s.stationId}","${s.stationName}","${s.countyName}","${s.townName || ''}",${s.airTemp},${s.maxT},${s.minT},"${s.relativeHumidity || ''}","${s.weather || ''}",${s.precipitation || 0},"${s.obsTime}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -488,64 +455,3 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </script>
 </body>
 </html>
-"""
-
-
-@app.route("/")
-@app.route("/api")
-@app.route("/api/")
-@app.route("/api/index")
-@app.route("/api/index.py")
-@app.route("/index")
-@app.route("/index.html")
-def index():
-    """主儀表板畫面"""
-    return render_template_string(DASHBOARD_HTML)
-
-
-@app.route("/api/weather")
-@app.route("/api/weather.py")
-@app.route("/weather")
-def api_weather():
-    """
-    提供全台 330+ 測站即時觀測數據 JSON API
-    具備 Edge CDN 快取機制 (快取 5 分鐘)，減少重複請求氣象署 API
-    """
-    api_key = load_cwa_api_key()
-    raw_data = fetch_weather_data(api_key)
-    records = parse_weather_json(raw_data)
-    
-    resp = make_response(jsonify({
-        "success": True,
-        "dataset": DATASET_ID,
-        "count": len(records),
-        "updated_at": datetime.now().isoformat(),
-        "stations": records
-    }))
-    
-    resp.headers["Cache-Control"] = "public, max-age=60, s-maxage=300"
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    return resp
-
-
-@app.route("/api/health")
-@app.route("/health")
-def api_health():
-    """健康檢查端點"""
-    return jsonify({
-        "status": "healthy",
-        "service": "Taiwan Weather Live Vercel API",
-        "timestamp": datetime.now().isoformat()
-    })
-
-
-@app.errorhandler(404)
-def handle_404(e):
-    """任何未匹配路徑皆優雅回退至儀表板畫面，避免出現 Werkzeug 404"""
-    return render_template_string(DASHBOARD_HTML), 200
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 3000))
-    print(f"啟動本地開發伺服器：http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=True)
