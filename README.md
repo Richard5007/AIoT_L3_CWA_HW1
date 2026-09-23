@@ -1,11 +1,16 @@
 # 🌤️ AI 創新微課程：Taiwan Weather Forecast
 > **從氣象資料到互動式天氣預報應用**  
-> *CWA API × JSON × Python × SQLite × Streamlit × Folium*
+> *CWA API × JSON × Python × SQLite × Streamlit × Folium × Vercel*
+
+[![Vercel Live Demo](https://img.shields.io/badge/Vercel-Live%20Demo-black?style=for-the-badge&logo=vercel)](https://a-io-t-l3-cwa-hw-1-iota.vercel.app/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-blue?style=for-the-badge&logo=github)](https://github.com/Richard5007/AIoT_L3_CWA_HW1)
+
+🔗 **線上正式預覽網址 (Live Demo)**：[https://a-io-t-l3-cwa-hw-1-iota.vercel.app/](https://a-io-t-l3-cwa-hw-1-iota.vercel.app/)
 
 ---
 
 ## 📌 專案簡介 (Overview)
-本專案為 AIoT 課程 Lesson 3 作業實作，以中央氣象署 (CWA) Open Data 為核心，透過 Python 擷取氣象資料、經由 SQLite 儲存與處理，最終利用 Streamlit 與 Folium 建構出互動式的台灣天氣預報儀表板與視覺化地圖。
+本專案為 AIoT 課程 Lesson 3 作業實作，以中央氣象署 (CWA) Open Data 為核心，透過 Python 擷取氣象資料、經由 SQLite 儲存與處理，最終利用 Streamlit、Folium 與 Vercel Serverless 建構出互動式的台灣天氣預報儀表板與視覺化地圖。
 
 ## 📸 應用程式畫面截圖 (Dashboard Preview)
 ![Taiwan Weather Live 儀表板截圖](assets/image.png)
@@ -153,6 +158,8 @@ flowchart TD
 ## 🚀 部署至 Vercel (Deploy to Vercel)
 
 本專案支援 **▲ Vercel Serverless 一鍵部署**！
+
+- 🌐 **線上正式網址 (Production URL)**：[https://a-io-t-l3-cwa-hw-1-iota.vercel.app/](https://a-io-t-l3-cwa-hw-1-iota.vercel.app/)
 
 ### 部署步驟：
 1. 登入 [Vercel 控制台](https://vercel.com/) 並點擊 **Add New Project**。
