@@ -31,14 +31,16 @@ except ImportError:
     folium = None
     st_folium = None
 
-from database import (
-    init_db,
-    save_forecasts,
-    get_all_counties,
-    get_stations_by_county,
-    get_all_latest_observations,
-    get_total_records_count
-)
+import database
+import importlib
+importlib.reload(database)
+
+init_db = database.init_db
+save_forecasts = database.save_forecasts
+get_all_counties = getattr(database, "get_all_counties", getattr(database, "get_all_regions", lambda: []))
+get_stations_by_county = getattr(database, "get_stations_by_county", lambda c: [])
+get_all_latest_observations = getattr(database, "get_all_latest_observations", lambda: [])
+get_total_records_count = getattr(database, "get_total_records_count", lambda: 0)
 from cwa_service import (
     fetch_weather_data,
     parse_weather_json,
