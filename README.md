@@ -150,7 +150,21 @@ flowchart TD
 
 ---
 
-## 🚀 快速開始 (Getting Started)
+## 🚀 部署至 Vercel (Deploy to Vercel)
+
+本專案支援 **▲ Vercel Serverless 一鍵部署**！
+
+### 部署步驟：
+1. 登入 [Vercel 控制台](https://vercel.com/) 並點擊 **Add New Project**。
+2. 連結並匯入 GitHub 儲存庫：`Richard5007/AIoT_L3_CWA_HW1`。
+3. 在 **Environment Variables** (環境變數) 填入：
+   - **Key**: `CWA_API_KEY`
+   - **Value**: 您的氣象署授權碼 (例如 `CWA-EFB9DB07-E68A-47E1-9653-7877779A3238`)
+4. 點擊 **Deploy**，約 30 秒即可完成全域無伺服器上線，享有專屬全域 HTTPS 網址！
+
+---
+
+## 💻 本地執行指南 (Getting Started)
 
 ### 1. 複製專案
 ```bash
@@ -158,15 +172,19 @@ git clone https://github.com/Richard5007/AIoT_L3_CWA_HW1.git
 cd AIoT_L3_CWA_HW1
 ```
 
-### 2. 安裝必要套件
+### 2. 方式 A：啟動 Vercel 本地模擬伺服器 (推薦 · 輕量急速)
 ```bash
-pip install requests pandas streamlit folium streamlit-folium
+pip install -r requirements.txt
+python api/index.py
 ```
+打開瀏覽器造訪：`http://localhost:3000`
 
-### 3. 啟動 Web 應用程式
+### 3. 方式 B：啟動 Streamlit 儀表板模式
 ```bash
+pip install -r requirements-streamlit.txt
 streamlit run app.py
 ```
+打開瀏覽器造訪：`http://localhost:8501`
 
 ---
 

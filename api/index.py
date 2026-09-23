@@ -1,0 +1,536 @@
+"""
+api/index.py - Vercel Serverless Application Entry Point
+支援 Vercel 部署、Edge CDN 快取、RESTful API 與現代化即時氣象儀表板。
+"""
+
+import os
+import sys
+import json
+from datetime import datetime
+from flask import Flask, jsonify, make_response, render_template_string
+
+# 確保當前路徑與上一層目錄在 sys.path 中
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from cwa_service import fetch_weather_data, parse_weather_json, load_cwa_api_key, DATASET_ID
+
+app = Flask(__name__)
+
+# 內嵌現代化即時氣象儀表板 HTML (整合 Tailwind CSS, Leaflet.js, Chart.js)
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taiwan Weather Live - 全台氣象即時觀測儀表板 (Vercel Edition)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', 'Noto Sans TC', sans-serif; }
+        .hero-gradient { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0284c7 100%); }
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        #map { height: 500px; border-radius: 12px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+    <!-- 頂部導航 -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">🌤️</span>
+                <span class="font-bold text-lg text-slate-900 tracking-tight">Taiwan Weather Live</span>
+                <span class="hidden sm:inline-block bg-sky-100 text-sky-800 text-xs px-2.5 py-0.5 rounded-full font-semibold">Vercel Serverless</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="sync-status" class="inline-flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    CWA O-A0003-001 實時連線
+                </span>
+                <button onclick="refreshData()" class="text-xs bg-slate-900 hover:bg-slate-800 text-white font-semibold py-1.5 px-3 rounded-lg transition shadow-sm flex items-center gap-1">
+                    🔄 <span class="hidden sm:inline">重新整理</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Hero 橫幅 -->
+        <div class="hero-gradient rounded-2xl p-6 sm:p-8 text-white shadow-xl shadow-sky-900/10">
+            <div class="max-w-3xl">
+                <div class="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold mb-3 border border-white/20">
+                    <span id="greeting">您好</span> · 氣象署即時觀測
+                </div>
+                <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">全台灣 330+ 氣象測站現在天氣報告</h1>
+                <p class="text-sky-100 text-sm sm:text-base opacity-90">實時監測各縣市鄉鎮區測站氣溫、今日極值、相對濕度與累積雨量，採用 Vercel Serverless 全球邊緣運算。</p>
+                <div class="mt-4 text-xs text-sky-200" id="last-updated">更新時間載入中...</div>
+            </div>
+        </div>
+
+        <!-- 控制篩選器列 -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div class="flex flex-wrap items-center gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">📍 選擇觀測縣市</label>
+                    <select id="county-select" onchange="onCountyChange()" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block px-3 py-2 font-medium">
+                        <option value="">載入縣市中...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">🏢 選擇觀測測站</label>
+                    <select id="station-select" onchange="onStationChange()" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block px-3 py-2 font-medium">
+                        <option value="">請先選擇縣市</option>
+                    </select>
+                </div>
+            </div>
+            <div class="text-xs text-slate-500" id="station-stats">
+                全台連線測站：<b class="text-slate-800" id="total-stations-count">--</b> 站
+            </div>
+        </div>
+
+        <!-- 核心氣溫指標卡 (5 欄式) -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <!-- 卡片 1 -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="text-xs font-semibold text-slate-500">📍 當前觀測站點</div>
+                <div class="text-lg sm:text-xl font-bold text-slate-900 mt-2 truncate" id="kpi-station-name">--</div>
+                <div class="text-xs text-slate-400 mt-1 truncate" id="kpi-station-town">--</div>
+            </div>
+            <!-- 卡片 2 -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="text-xs font-semibold text-slate-500">🌡️ 目前即時氣溫</div>
+                <div class="text-2xl sm:text-3xl font-extrabold text-sky-600 mt-1" id="kpi-temp">--<span class="text-sm font-normal text-slate-500">°C</span></div>
+                <div class="text-xs text-slate-400 mt-1" id="kpi-weather">現況: --</div>
+            </div>
+            <!-- 卡片 3 -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="text-xs font-semibold text-slate-500">🔺 今日最高溫</div>
+                <div class="text-2xl sm:text-3xl font-extrabold text-rose-500 mt-1" id="kpi-max-temp">--<span class="text-sm font-normal text-slate-500">°C</span></div>
+                <div class="text-xs text-slate-400 mt-1">當日最高極值</div>
+            </div>
+            <!-- 卡片 4 -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="text-xs font-semibold text-slate-500">🔻 今日最低溫</div>
+                <div class="text-2xl sm:text-3xl font-extrabold text-blue-500 mt-1" id="kpi-min-temp">--<span class="text-sm font-normal text-slate-500">°C</span></div>
+                <div class="text-xs text-slate-400 mt-1">當日最低極值</div>
+            </div>
+            <!-- 卡片 5 -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1">
+                <div class="text-xs font-semibold text-slate-500">💧 相對濕度 / 雨量</div>
+                <div class="text-2xl sm:text-3xl font-extrabold text-emerald-500 mt-1" id="kpi-humidity">--<span class="text-sm font-normal text-slate-500">%</span></div>
+                <div class="text-xs text-slate-400 mt-1" id="kpi-rain">累積雨量: 0 mm</div>
+            </div>
+        </div>
+
+        <!-- AIoT 智慧生活穿搭提醒小卡 -->
+        <div class="bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-100 rounded-xl p-4 flex items-start gap-3">
+            <span class="text-2xl" id="advice-icon">🌤️</span>
+            <div>
+                <h4 class="font-bold text-sm text-sky-950 mb-0.5">智慧生活與穿搭提醒（AIoT 助理）</h4>
+                <p class="text-xs sm:text-sm text-slate-700" id="advice-text">根據當前氣溫與日溫差運算生成中...</p>
+            </div>
+        </div>
+
+        <!-- 儀表板主要內容分區 (圖表 + 地圖) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- 左側/上方：縣市轄區測站氣溫對比圖表 (5 欄) -->
+            <div class="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                        📊 <span id="chart-county-title">所選縣市</span> 測站即時氣溫比較
+                    </h3>
+                    <span class="text-xs text-slate-400">依溫度排序</span>
+                </div>
+                <div class="flex-1 min-h-[360px] relative">
+                    <canvas id="tempChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 右側/下方：全台灣即時測站分佈地圖 (7 欄) -->
+            <div class="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                        🗺️ 全台灣測站實時地圖分佈
+                    </h3>
+                    <div class="flex items-center gap-2 text-xs font-semibold">
+                        <span class="text-blue-500">■ &lt;20°</span>
+                        <span class="text-emerald-500">■ 20-25°</span>
+                        <span class="text-amber-500">■ 25-30°</span>
+                        <span class="text-rose-500">■ &gt;30°</span>
+                    </div>
+                </div>
+                <div id="map" class="shadow-inner border border-slate-100 flex-1"></div>
+            </div>
+
+        </div>
+
+        <!-- 數據詳細清單與下載區塊 -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                    📋 <span id="table-county-title">全台</span> 即時測站觀測明細清單
+                </h3>
+                <button onclick="downloadCSV()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-1.5 px-3 rounded-lg transition border border-slate-300">
+                    📥 導出此縣市資料 (CSV)
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                            <th class="py-2.5 px-3">測站名稱</th>
+                            <th class="py-2.5 px-3">行政區</th>
+                            <th class="py-2.5 px-3">即時氣溫</th>
+                            <th class="py-2.5 px-3">今日最高</th>
+                            <th class="py-2.5 px-3">今日最低</th>
+                            <th class="py-2.5 px-3">相對濕度</th>
+                            <th class="py-2.5 px-3">天氣狀況</th>
+                            <th class="py-2.5 px-3">累積雨量</th>
+                        </tr>
+                    </thead>
+                    <tbody id="station-table-body" class="divide-y divide-slate-100 text-slate-700">
+                        <tr><td colspan="8" class="text-center py-6 text-slate-400">正在加載測站資料...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-400">
+        AIoT Lesson 3 · 交通部中央氣象署 (CWA) Open Data (O-A0003-001) · Deployed on ▲ Vercel Serverless
+    </footer>
+
+    <script>
+        let allStations = [];
+        let currentCounty = "臺北市";
+        let map = null;
+        let markersLayer = null;
+        let chartInstance = null;
+
+        function getTempColor(t) {
+            if (t < 20) return "#3b82f6";
+            if (t <= 25) return "#10b981";
+            if (t <= 30) return "#f59e0b";
+            return "#ef4444";
+        }
+
+        function initMap() {
+            map = L.map('map').setView([23.8, 120.9], 7);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+            markersLayer = L.layerGroup().addTo(map);
+        }
+
+        async function refreshData() {
+            const statusEl = document.getElementById("sync-status");
+            statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> 更新氣象資料中...`;
+            try {
+                const res = await fetch('/api/weather');
+                const data = await res.json();
+                allStations = data.stations || [];
+                document.getElementById("total-stations-count").innerText = allStations.length;
+                
+                if (allStations.length > 0) {
+                    const sampleTime = allStations[0].obsTime.replace('T', ' ').substring(0, 19);
+                    document.getElementById("last-updated").innerText = `最後觀測時間: ${sampleTime}`;
+                }
+                
+                statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 連線正常 (${allStations.length} 站)`;
+                populateCounties();
+                renderAll();
+            } catch (err) {
+                console.error("載入失敗:", err);
+                statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 資料載入失敗`;
+            }
+        }
+
+        function populateCounties() {
+            const counties = Array.from(new Set(allStations.map(s => s.countyName).filter(Boolean))).sort();
+            const select = document.getElementById("county-select");
+            select.innerHTML = "";
+            counties.forEach(c => {
+                const opt = document.createElement("option");
+                opt.value = c;
+                opt.innerText = c;
+                if (c === currentCounty) opt.selected = true;
+                select.appendChild(opt);
+            });
+            if (!counties.includes(currentCounty) && counties.length > 0) {
+                currentCounty = counties[0];
+            }
+            populateStations();
+        }
+
+        function populateStations() {
+            const stationsInCounty = allStations.filter(s => s.countyName === currentCounty);
+            const select = document.getElementById("station-select");
+            select.innerHTML = "";
+            stationsInCounty.forEach((s, idx) => {
+                const opt = document.createElement("option");
+                opt.value = s.stationId;
+                opt.innerText = `${s.townName ? s.townName + ' - ' : ''}${s.stationName} (${s.airTemp}°C)`;
+                if (idx === 0) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function onCountyChange() {
+            currentCounty = document.getElementById("county-select").value;
+            populateStations();
+            renderAll();
+        }
+
+        function onStationChange() {
+            renderKPIs();
+        }
+
+        function renderKPIs() {
+            const stationId = document.getElementById("station-select").value;
+            const s = allStations.find(st => st.stationId === stationId) || allStations.find(st => st.countyName === currentCounty);
+            if (!s) return;
+
+            document.getElementById("kpi-station-name").innerText = s.stationName;
+            document.getElementById("kpi-station-town").innerText = `${s.countyName} ${s.townName || ''}`;
+            document.getElementById("kpi-temp").innerHTML = `${s.airTemp}<span class="text-sm font-normal text-slate-500">°C</span>`;
+            document.getElementById("kpi-weather").innerText = `現況: ${s.weather || '良好'}`;
+            document.getElementById("kpi-max-temp").innerHTML = `${s.maxT}<span class="text-sm font-normal text-slate-500">°C</span>`;
+            document.getElementById("kpi-min-temp").innerHTML = `${s.minT}<span class="text-sm font-normal text-slate-500">°C</span>`;
+            document.getElementById("kpi-humidity").innerHTML = `${s.relativeHumidity !== null ? s.relativeHumidity : '--'}<span class="text-sm font-normal text-slate-500">%</span>`;
+            document.getElementById("kpi-rain").innerText = `累積雨量: ${s.precipitation || 0} mm`;
+
+            // 穿衣建議
+            const t = s.airTemp;
+            const diff = s.maxT - s.minT;
+            let cloth = "", icon = "🌤️";
+            if (t >= 30) {
+                cloth = "氣溫高達 30°C 以上，戶外高溫炎熱，建議穿著排汗透氣短袖，定時防曬與補水。";
+                icon = "☀️";
+            } else if (t >= 25) {
+                cloth = "氣溫在 25~30°C 之間，體感暖和微熱，穿著一般夏季休閒短袖即可。";
+                icon = "🌤️";
+            } else if (t >= 20) {
+                cloth = "目前氣溫約 20~25°C，舒適宜人，適合穿著薄長袖或輕薄襯衫。";
+                icon = "🧥";
+            } else {
+                cloth = "氣溫低於 20°C，體感偏冷涼，建議著保暖外套防寒。";
+                icon = "🧣";
+            }
+            const notice = diff >= 7 ? "今日日溫差顯著 (超過 7°C)，請注意早晚洋蔥式穿搭保暖。" : "今日溫差平緩，氣溫穩定。";
+            document.getElementById("advice-icon").innerText = icon;
+            document.getElementById("advice-text").innerHTML = `${cloth} <b>${notice}</b>`;
+        }
+
+        function renderMap() {
+            if (!map || !markersLayer) return;
+            markersLayer.clearLayers();
+
+            let targetBounds = [];
+            allStations.forEach(s => {
+                if (!s.lat || !s.lon) return;
+                const isCurrentCounty = s.countyName === currentCounty;
+                const color = getTempColor(s.airTemp);
+
+                const marker = L.circleMarker([s.lat, s.lon], {
+                    radius: isCurrentCounty ? 8 : 4.5,
+                    fillColor: color,
+                    color: isCurrentCounty ? '#0f172a' : color,
+                    weight: isCurrentCounty ? 2 : 1,
+                    opacity: 0.9,
+                    fillOpacity: isCurrentCounty ? 0.9 : 0.65
+                });
+
+                const popupContent = `
+                    <div style="font-family: sans-serif; min-width: 140px;">
+                        <h4 style="margin: 0; color: #0284c7; font-size: 14px; font-weight: bold;">📍 ${s.countyName} ${s.stationName}</h4>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">${s.townName || ''}</div>
+                        <hr style="margin: 4px 0; border: none; border-top: 1px solid #e2e8f0;">
+                        <div style="margin: 2px 0;">目前氣溫: <b style="color:${color};">${s.airTemp}°C</b></div>
+                        <div style="margin: 2px 0;">今日極值: <b>${s.minT}°C ~ ${s.maxT}°C</b></div>
+                        <div style="margin: 2px 0;">相對濕度: <b>${s.relativeHumidity}%</b></div>
+                        <div style="margin: 2px 0;">天氣狀況: <b>${s.weather || '良好'}</b></div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                marker.bindTooltip(`${s.countyName} ${s.stationName}: ${s.airTemp}°C`);
+                marker.addTo(markersLayer);
+
+                if (isCurrentCounty) {
+                    targetBounds.push([s.lat, s.lon]);
+                }
+            });
+
+            if (targetBounds.length > 0) {
+                map.flyToBounds(targetBounds, { padding: [40, 40], maxZoom: 10, duration: 1.2 });
+            }
+        }
+
+        function renderChart() {
+            const countyStations = allStations.filter(s => s.countyName === currentCounty).sort((a,b) => a.airTemp - b.airTemp);
+            document.getElementById("chart-county-title").innerText = currentCounty;
+
+            const labels = countyStations.map(s => `${s.townName ? s.townName + '-' : ''}${s.stationName}`);
+            const dataTemps = countyStations.map(s => s.airTemp);
+            const colors = dataTemps.map(t => getTempColor(t));
+
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '即時氣溫 (°C)',
+                        data: dataTemps,
+                        backgroundColor: colors,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => ` 氣溫: ${ctx.parsed.x} °C`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: '氣溫 (°C)' },
+                            grid: { color: '#f1f5f9' }
+                        },
+                        y: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTable() {
+            const countyStations = allStations.filter(s => s.countyName === currentCounty);
+            document.getElementById("table-county-title").innerText = currentCounty;
+            const tbody = document.getElementById("station-table-body");
+            tbody.innerHTML = "";
+
+            if (countyStations.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">查無此縣市之測站資料</td></tr>`;
+                return;
+            }
+
+            countyStations.forEach(s => {
+                const tr = document.createElement("tr");
+                tr.className = "hover:bg-slate-50 transition";
+                tr.innerHTML = `
+                    <td class="py-2 px-3 font-semibold text-slate-900">${s.stationName}</td>
+                    <td class="py-2 px-3">${s.townName || '--'}</td>
+                    <td class="py-2 px-3 font-bold" style="color: ${getTempColor(s.airTemp)};">${s.airTemp} °C</td>
+                    <td class="py-2 px-3 text-rose-500 font-semibold">${s.maxT} °C</td>
+                    <td class="py-2 px-3 text-blue-500 font-semibold">${s.minT} °C</td>
+                    <td class="py-2 px-3">${s.relativeHumidity !== null ? s.relativeHumidity + '%' : '--'}</td>
+                    <td class="py-2 px-3">${s.weather || '良好'}</td>
+                    <td class="py-2 px-3">${s.precipitation || 0} mm</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function downloadCSV() {
+            const countyStations = allStations.filter(s => s.countyName === currentCounty);
+            if (countyStations.length === 0) return;
+
+            let csv = "\\uFEFF測站代碼,測站名稱,縣市,鄉鎮區,即時氣溫,今日最高溫,今日最低溫,相對濕度,天氣狀況,累積雨量,觀測時間\\n";
+            countyStations.forEach(s => {
+                csv += `"${s.stationId}","${s.stationName}","${s.countyName}","${s.townName || ''}",${s.airTemp},${s.maxT},${s.minT},"${s.relativeHumidity || ''}","${s.weather || ''}",${s.precipitation || 0},"${s.obsTime}"\\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `${currentCounty}_weather_observations.csv`;
+            link.click();
+        }
+
+        function renderAll() {
+            renderKPIs();
+            renderMap();
+            renderChart();
+            renderTable();
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const hour = new Date().getHours();
+            const g = hour >= 5 && hour < 11 ? "早安" : hour >= 11 && hour < 14 ? "午安" : hour >= 14 && hour < 18 ? "下午好" : "晚安";
+            document.getElementById("greeting").innerText = g;
+            initMap();
+            refreshData();
+        });
+    </script>
+</body>
+</html>
+"""
+
+
+@app.route("/")
+def index():
+    """主儀表板畫面"""
+    return render_template_string(DASHBOARD_HTML)
+
+
+@app.route("/api/weather")
+def api_weather():
+    """
+    提供全台 330+ 測站即時觀測數據 JSON API
+    具備 Edge CDN 快取機制 (快取 5 分鐘)，減少重複請求氣象署 API
+    """
+    api_key = load_cwa_api_key()
+    raw_data = fetch_weather_data(api_key)
+    records = parse_weather_json(raw_data)
+    
+    resp = make_response(jsonify({
+        "success": True,
+        "dataset": DATASET_ID,
+        "count": len(records),
+        "updated_at": datetime.now().isoformat(),
+        "stations": records
+    }))
+    
+    # 設定 Edge 快取標頭 (瀏覽器快取 60 秒，Vercel CDN 快取 300 秒)
+    resp.headers["Cache-Control"] = "public, max-age=60, s-maxage=300"
+    return resp
+
+
+@app.route("/api/health")
+def api_health():
+    """健康檢查端點"""
+    return jsonify({
+        "status": "healthy",
+        "service": "Taiwan Weather Live Vercel API",
+        "timestamp": datetime.now().isoformat()
+    })
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 3000))
+    print(f"啟動本地開發伺服器：http://localhost:{port}")
+    app.run(host="0.0.0.0", port=port, debug=True)
