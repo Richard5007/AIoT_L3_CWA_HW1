@@ -100,26 +100,20 @@ def main():
     st.sidebar.title("⚙️ 控制面板")
     st.sidebar.markdown("---")
     
-    # API Key 設定 (Step 3 & 4)
-    default_key = load_cwa_api_key()
-    api_key_input = st.sidebar.text_input(
-        "CWA 授權碼 (API Key)",
-        value=default_key,
-        type="password",
-        help="中央氣象署 Open Data 授權碼，留空或無效時將使用模擬數據。"
-    )
+    # 背景讀取 API Key (不顯示在介面上，以保護金鑰安全性)
+    cwa_key = load_cwa_api_key()
     
     # 手動同步資料按鈕
     if st.sidebar.button("🔄 從氣象署同步最新資料", use_container_width=True):
         with st.spinner("正在向中央氣象署請求最新預報資料..."):
             try:
-                raw_json = fetch_weather_data(api_key_input)
+                raw_json = fetch_weather_data(cwa_key)
                 records = parse_weather_json(raw_json)
                 if records:
                     saved = save_forecasts(records)
                     st.sidebar.success(f"同步成功！已更新 {saved} 筆氣象紀錄。")
                 else:
-                    st.sidebar.warning("未取得任何紀錄，請檢查 API Key 是否正確。")
+                    st.sidebar.warning("未取得任何紀錄，請確認網路連線或 API Key。")
             except Exception as e:
                 st.sidebar.error(f"同步失敗: {e}")
                 
@@ -129,7 +123,7 @@ def main():
     regions = get_all_regions()
     if not regions:
         with st.spinner("首次啟動：正在初始化預報數據..."):
-            raw_json = fetch_weather_data(api_key_input)
+            raw_json = fetch_weather_data(cwa_key)
             records = parse_weather_json(raw_json)
             save_forecasts(records)
             regions = get_all_regions()
