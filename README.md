@@ -7,6 +7,9 @@
 ## 📌 專案簡介 (Overview)
 本專案為 AIoT 課程 Lesson 3 作業實作，以中央氣象署 (CWA) Open Data 為核心，透過 Python 擷取氣象資料、經由 SQLite 儲存與處理，最終利用 Streamlit 與 Folium 建構出互動式的台灣天氣預報儀表板與視覺化地圖。
 
+## 📸 應用程式畫面截圖 (Dashboard Preview)
+![Taiwan Weather Live 儀表板截圖](assets/image.png)
+
 ---
 
 ## 🛠️ 技術架構 (Technology Stack)
@@ -125,7 +128,8 @@ flowchart TD
 #### 🔹 第四階段：地圖視覺化與程式優化 (Steps 17 ~ 20)
 17. **進階：台灣地圖視覺化**：結合 `Folium` 與 `Streamlit`，利用溫度區間顏色呈現台灣氣溫地圖。
 18. **選擇日期顯示地圖**：提供日期選擇功能，於互動式地圖中顯示特定日期的區域溫差（如中部地區 Min: 20°C, Max: 30°C）。
-19. **完整成果展示**：整合地圖與圖表，完成 Taiwan Weather Dashboard。
+19. **完整成果展示**：整合地圖與圖表，完成 Taiwan Weather Dashboard 即時觀測儀表板。
+    ![Taiwan Weather Dashboard 成果展示](assets/image.png)
 20. **程式碼品質與優化**：
     - 程式碼結構清晰化
     - 健全的錯誤處理機制 (Error Handling)
